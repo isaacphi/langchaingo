@@ -356,7 +356,12 @@ func handleContentBlockDeltaEvent(ctx context.Context, event map[string]interfac
 	if payload.StreamingFunc != nil {
 		text, ok := delta["text"].(string)
 		if !ok {
-			return response, ErrInvalidDeltaTextField
+			// return response, ErrInvalidDeltaTextField
+			fmt.Printf("%+v", delta)
+			text, ok = delta["partial_json"].(string)
+			if !ok {
+				return response, ErrInvalidDeltaTextField
+			}
 		}
 		err := payload.StreamingFunc(ctx, []byte(text))
 		if err != nil {
