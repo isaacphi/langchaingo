@@ -258,7 +258,7 @@ func processStreamEvent(ctx context.Context, event map[string]interface{}, paylo
 	case "message_start":
 		return handleMessageStartEvent(event, response)
 	case "content_block_start":
-		return handleContentBlockStartEvent(event, response)
+		return handleContentBlockStartEvent(ctx, event, response, payload)
 	case "content_block_delta":
 		return handleContentBlockDeltaEvent(ctx, event, response, payload)
 	case "content_block_stop":
@@ -302,7 +302,7 @@ func handleMessageStartEvent(event map[string]interface{}, response MessageRespo
 	return response, nil
 }
 
-func handleContentBlockStartEvent(event map[string]interface{}, response MessageResponsePayload) (MessageResponsePayload, error) {
+func handleContentBlockStartEvent(ctx context.Context, event map[string]interface{}, response MessageResponsePayload, payload *messagePayload) (MessageResponsePayload, error) {
 	indexValue, ok := event["index"].(float64)
 	if !ok {
 		return response, ErrInvalidIndexField
@@ -318,10 +318,28 @@ func handleContentBlockStartEvent(event map[string]interface{}, response Message
 
 	if len(response.Content) <= index {
 		if contentType == "tool_use" {
+			name, ok := contentBlock["name"].(string)
+			if !ok {
+				return response, fmt.Errorf("invalid name field")
+			}
+			id, ok := contentBlock["id"].(string)
+			if !ok {
+				return response, fmt.Errorf("invalid id field")
+			}
+
 			response.Content = append(response.Content, &ToolUseContent{
-				Type:  "tool_use",
-				Input: make(map[string]interface{}),
+				Type:        "tool_use",
+				ID:          id,
+				Name:        name,
+				Input:       make(map[string]interface{}),
+				PartialJSON: "",
 			})
+
+			chunk := formatToolCallChunk(id, name, "")
+			err := payload.StreamingFunc(ctx, []byte(chunk))
+			if err != nil {
+				return response, fmt.Errorf("streaming func returned an error: %w", err)
+			}
 		} else {
 			// Default to text content
 			response.Content = append(response.Content, &TextContent{
@@ -419,6 +437,7 @@ func formatToolCallChunk(id string, name string, arguments string) string {
 	chunk := []map[string]interface{}{
 		{
 			"type": "function",
+			"id":   id,
 			"function": map[string]interface{}{
 				"name":      name,
 				"arguments": arguments,
